@@ -66,6 +66,72 @@ The application can be configured using environment variables:
 | PORT     | Port number for the service     | 5000    |
 | DEBUG    | Enable debug mode (true/false)  | false   |
 
+## Docker
+
+### Building the Image
+
+Build the Docker image locally:
+
+```bash
+docker build -t devops-info-service:latest .
+```
+
+Build with custom tag:
+
+```bash
+docker build -t <your-username>/devops-info-service:1.0.0 .
+```
+
+### Running a Container
+
+Run the container with default configuration:
+
+```bash
+docker run -p 5000:5000 devops-info-service:latest
+```
+
+Run with custom environment variables:
+
+```bash
+docker run -p 8080:5000 -e PORT=5000 -e DEBUG=true devops-info-service:latest
+```
+
+Run in background mode:
+
+```bash
+docker run -d -p 5000:5000 --name my-app devops-info-service:latest
+```
+
+### Accessing the Application
+
+Once the container is running, access the endpoints:
+
+```bash
+# Service information
+curl http://localhost:5000/
+
+# Health check
+curl http://localhost:5000/health
+```
+
+### Pulling from Docker Hub
+
+Pull and run the published image:
+
+```bash
+docker pull <your-username>/devops-info-service:latest
+docker run -p 5000:5000 <your-username>/devops-info-service:latest
+```
+
+### Container Details
+
+- **Base Image:** python:3.13-slim
+- **Runs as:** Non-root user (appuser)
+- **Default Port:** 5000
+- **Health Check:** Enabled with 30-second intervals
+
+See [docs/LAB02.md](./docs/LAB02.md) for detailed Docker implementation documentation.
+
 ## Project Structure
 
 ```text
