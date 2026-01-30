@@ -1,0 +1,12 @@
+devops-info-service
+*.log
+*.tmp
+*.out
+*.test
+*.swp
+*.swo
+.idea/
+.vscode/
+docs/
+README.md
+*.md
