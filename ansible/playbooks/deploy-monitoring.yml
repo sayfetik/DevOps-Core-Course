@@ -1,0 +1,95 @@
+---
+- name: Deploy Complete Observability Stack
+  hosts: webservers
+  become: true
+  vars_files:
+    - ../vars/app_python.yml
+
+  pre_tasks:
+    - name: Display deployment info
+      debug:
+        msg: |
+          ========================================
+          Deploying Complete Observability Stack
+          ========================================
+          Loki: {{ loki_version }}
+          Prometheus: {{ prometheus_version }}
+          Grafana: {{ grafana_version }}
+          Retention: {{ loki_retention_period }} / {{ prometheus_retention_days }} days
+          ========================================
+      tags: always
+
+  roles:
+    - role: monitoring
+      tags: [monitoring, observability]
+
+  post_tasks:
+    - name: Verify all services
+      block:
+        - name: Check Loki
+          uri:
+            url: "http://localhost:{{ loki_port }}/ready"
+            method: GET
+          register: loki_check
+
+        - name: Check Promtail
+          uri:
+            url: "http://localhost:{{ promtail_port }}/ready"
+            method: GET
+          register: promtail_check
+
+        - name: Check Grafana
+          uri:
+            url: "http://localhost:{{ grafana_port }}/api/health"
+            method: GET
+          register: grafana_check
+
+        - name: Check Prometheus
+          uri:
+            url: "http://localhost:{{ prometheus_port }}/-/healthy"
+            method: GET
+          register: prometheus_check
+
+        - name: Check Python Apps
+          uri:
+            url: "http://localhost:{{ item.port }}/health"
+            method: GET
+          loop: "{{ monitoring_apps }}"
+          register: apps_check
+
+        - name: Display verification results
+          debug:
+            msg: |
+              ========================================
+              Verification Results
+              ========================================
+              Loki:       {{ 'OK' if loki_check.status == 200 else 'FAILED' }}
+              Promtail:   {{ 'OK' if promtail_check.status == 200 else 'FAILED' }}
+              Grafana:    {{ 'OK' if grafana_check.status == 200 else 'FAILED' }}
+              Prometheus: {{ 'OK' if prometheus_check.status == 200 else 'FAILED' }}
+              
+              Access Points:
+              - Grafana:   http://{{ inventory_hostname }}:{{ grafana_port }}
+              - Prometheus: http://{{ inventory_hostname }}:{{ prometheus_port }}
+              - Loki:       http://{{ inventory_hostname }}:{{ loki_port }}
+              
+              Credentials: {{ grafana_admin_user }} / {{ grafana_admin_password }}
+              ========================================
+          tags: [monitoring, verify]
+
+    - name: Generate test traffic
+      shell: |
+        for i in {1..20}; do
+          curl -s http://localhost:8000/ > /dev/null
+          curl -s http://localhost:8000/health > /dev/null
+          curl -s http://localhost:8000/slow > /dev/null
+          curl -s http://localhost:8001/ > /dev/null
+          echo -n "."
+          sleep 0.2
+        done
+      register: traffic_result
+      changed_when: false
+      failed_when: false
+      tags:
+        - monitoring_test
+        - traffic

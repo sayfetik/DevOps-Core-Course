@@ -1,0 +1,209 @@
+---
+networks:
+  {{ monitoring_network }}:
+    driver: {{ monitoring_network_driver }}
+
+volumes:
+  loki-data:
+  grafana-data:
+  prometheus-data:
+
+services:
+  loki:
+    image: grafana/loki:{{ loki_version }}
+    container_name: loki
+    ports:
+      - "{{ loki_port }}:{{ loki_port }}"
+    volumes:
+      - ./loki/config.yml:/etc/loki/config.yml:ro
+      - loki-data:/loki
+    command:
+      - -config.file=/etc/loki/config.yml
+      - -config.expand-env=true
+    networks:
+      - {{ monitoring_network }}
+    restart: unless-stopped
+    labels:
+      logging: "promtail"
+      app: "loki"
+    deploy:
+      resources:
+        limits:
+          cpus: '{{ loki_cpu_limit | default("1.0") }}'
+          memory: {{ loki_memory_limit | default("1G") }}
+        reservations:
+          cpus: '{{ loki_cpu_reservation | default("0.5") }}'
+          memory: {{ loki_memory_reservation | default("512M") }}
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:{{ loki_port }}/ready || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  promtail:
+    image: grafana/promtail:{{ promtail_version }}
+    container_name: promtail
+    ports:
+      - "{{ promtail_port }}:{{ promtail_port }}"
+    volumes:
+      - ./promtail/config.yml:/etc/promtail/config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    command:
+      - -config.file=/etc/promtail/config.yml
+    networks:
+      - {{ monitoring_network }}
+    restart: unless-stopped
+    depends_on:
+      - loki
+    labels:
+      logging: "promtail"
+      app: "promtail"
+    deploy:
+      resources:
+        limits:
+          cpus: '{{ promtail_cpu_limit | default("0.5") }}'
+          memory: {{ promtail_memory_limit | default("512M") }}
+        reservations:
+          cpus: '{{ promtail_cpu_reservation | default("0.2") }}'
+          memory: {{ promtail_memory_reservation | default("256M") }}
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:{{ promtail_port }}/ready || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  grafana:
+    image: grafana/grafana:{{ grafana_version }}
+    container_name: grafana
+    ports:
+      - "{{ grafana_port }}:3000"
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+      - GF_SECURITY_ADMIN_USER={{ grafana_admin_user }}
+      - GF_SECURITY_ADMIN_PASSWORD={{ grafana_admin_password }}
+      - GF_SECURITY_ALLOW_EMBEDDING=false
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - grafana-data:/var/lib/grafana
+    networks:
+      - {{ monitoring_network }}
+    restart: unless-stopped
+    depends_on:
+      - loki
+    labels:
+      logging: "promtail"
+      app: "grafana"
+    deploy:
+      resources:
+        limits:
+          cpus: '{{ grafana_cpu_limit | default("0.5") }}'
+          memory: {{ grafana_memory_limit | default("512M") }}
+        reservations:
+          cpus: '{{ grafana_cpu_reservation | default("0.2") }}'
+          memory: {{ grafana_memory_reservation | default("256M") }}
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:{{ grafana_port }}/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  prometheus:
+    image: prom/prometheus:{{ prometheus_version }}
+    container_name: prometheus
+    ports:
+      - "{{ prometheus_port }}:{{ prometheus_port }}"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time={{ prometheus_retention_days }}d'
+      - '--storage.tsdb.retention.size={{ prometheus_retention_size }}'
+    networks:
+      - {{ monitoring_network }}
+    restart: unless-stopped
+    labels:
+      logging: "promtail"
+      app: "prometheus"
+    depends_on:
+      - app-python
+    deploy:
+      resources:
+        limits:
+          cpus: '{{ prometheus_cpu_limit | default("1.0") }}'
+          memory: {{ prometheus_memory_limit | default("1G") }}
+        reservations:
+          cpus: '{{ prometheus_cpu_reservation | default("0.5") }}'
+          memory: {{ prometheus_memory_reservation | default("512M") }}
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:{{ prometheus_port }}/-/healthy || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  app-python:
+    image: info-service-python:latest
+    container_name: app-python
+    ports:
+      - "8000:5050"
+    environment:
+      - APP_NAME=devops-python
+      - PORT=5050
+      - HOST=0.0.0.0
+    networks:
+      - {{ monitoring_network }}
+    restart: unless-stopped
+    labels:
+      logging: "promtail"
+      app: "devops-python"
+    deploy:
+      resources:
+        limits:
+          cpus: '{{ app_cpu_limit | default("0.3") }}'
+          memory: {{ app_memory_limit | default("256M") }}
+        reservations:
+          cpus: '{{ app_cpu_reservation | default("0.1") }}'
+          memory: {{ app_memory_reservation | default("128M") }}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:5050/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  app-python-extra:
+    image: info-service-python:latest
+    container_name: app-python-extra
+    ports:
+      - "8001:5050"
+    environment:
+      - APP_NAME=devops-python-extra
+      - PORT=5050
+      - HOST=0.0.0.0
+    networks:
+      - {{ monitoring_network }}
+    restart: unless-stopped
+    labels:
+      logging: "promtail"
+      app: "devops-python-extra"
+    deploy:
+      resources:
+        limits:
+          cpus: '{{ app_cpu_limit | default("0.3") }}'
+          memory: {{ app_memory_limit | default("256M") }}
+        reservations:
+          cpus: '{{ app_cpu_reservation | default("0.1") }}'
+          memory: {{ app_memory_reservation | default("128M") }}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:5050/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
