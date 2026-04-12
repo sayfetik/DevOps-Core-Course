@@ -1,0 +1,108 @@
+---
+- name: Create monitoring directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+    owner: root
+    group: root
+  loop:
+    - "{{ monitoring_dir }}"
+    - "{{ monitoring_dir }}/loki"
+    - "{{ monitoring_dir }}/promtail"
+    - "{{ monitoring_dir }}/prometheus"
+    - "{{ monitoring_dir }}/grafana/provisioning/datasources"
+    - "{{ monitoring_dir }}/grafana/provisioning/dashboards"
+    - "{{ monitoring_dir }}/grafana/dashboards"
+  tags:
+    - monitoring_dirs
+
+- name: Template Loki configuration
+  template:
+    src: loki-config.yml.j2
+    dest: "{{ monitoring_dir }}/loki/config.yml"
+    mode: '0644'
+  tags:
+    - monitoring_config
+    - loki_config
+
+- name: Template Promtail configuration
+  template:
+    src: promtail-config.yml.j2
+    dest: "{{ monitoring_dir }}/promtail/config.yml"
+    mode: '0644'
+  tags:
+    - monitoring_config
+    - promtail_config
+
+- name: Template Prometheus configuration
+  template:
+    src: prometheus.yml.j2
+    dest: "{{ monitoring_dir }}/prometheus/prometheus.yml"
+    mode: '0644'
+  tags:
+    - monitoring_config
+    - prometheus_config
+
+- name: Template Grafana datasources
+  template:
+    src: grafana-datasources.yml.j2
+    dest: "{{ monitoring_dir }}/grafana/provisioning/datasources/datasources.yml"
+    mode: '0644'
+  tags:
+    - monitoring_config
+    - grafana_config
+
+- name: Create Grafana dashboard provisioning config
+  copy:
+    content: |
+      apiVersion: 1
+      providers:
+        - name: 'default'
+          orgId: 1
+          folder: ''
+          type: file
+          disableDeletion: false
+          editable: true
+          options:
+            path: /var/lib/grafana/dashboards
+    dest: "{{ monitoring_dir }}/grafana/provisioning/dashboards/dashboards.yml"
+    mode: '0644'
+  tags:
+    - monitoring_config
+    - grafana_config
+
+- name: Copy Grafana dashboard
+  copy:
+    src: "{{ item }}"
+    dest: "{{ monitoring_dir }}/grafana/dashboards/"
+    mode: '0644'
+  loop:
+    - grafana-app-dashboard.json
+  tags:
+    - monitoring_config
+    - grafana_dashboards
+
+- name: Template Docker Compose file
+  template:
+    src: docker-compose.yml.j2
+    dest: "{{ monitoring_dir }}/docker-compose.yml"
+    mode: '0644'
+  tags:
+    - monitoring_config
+    - compose_config
+
+- name: Login to Docker Hub
+  docker_login:
+    username: "{{ dockerhub_username }}"
+    password: "{{ dockerhub_password }}"
+    registry: "https://index.docker.io/v1/"
+  no_log: true
+  when:
+    - dockerhub_username is defined
+    - dockerhub_password is defined
+    - dockerhub_username != ''
+    - dockerhub_password != ''
+  tags:
+    - monitoring_auth
+    - docker
